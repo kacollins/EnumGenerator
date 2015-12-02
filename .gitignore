@@ -1,0 +1,4 @@
+EnumGenerator/bin/Debug/
+EnumGenerator/obj/Debug/
+*.supersecret
+connections.config
