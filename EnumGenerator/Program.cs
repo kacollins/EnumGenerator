@@ -20,15 +20,15 @@ namespace EnumGenerator
                                             ? args[(int)Argument.LookupTableFileName]
                                             : string.Empty;
 
-            string lookupTableWithParentFileName = args.Length > (int)Argument.LookupTableWithParentFileName
-                                            ? args[(int)Argument.LookupTableWithParentFileName]
-                                            : string.Empty;
-
             fileContents.AppendLine("Public Class Enumerations");
             fileContents.AppendLine();
 
             string enumsWithoutParents = GetEnumsWithoutParents(lookupTableFileName);
             fileContents.Append(enumsWithoutParents);
+
+            string lookupTableWithParentFileName = args.Length > (int)Argument.LookupTableWithParentFileName
+                                            ? args[(int)Argument.LookupTableWithParentFileName]
+                                            : string.Empty;
 
             string enumsWithParents = GetEnumsWithParents(lookupTableWithParentFileName);
             fileContents.AppendLine(enumsWithParents);
@@ -147,7 +147,8 @@ namespace EnumGenerator
         {
             DataTable dt = GetDataTable($"SELECT {table.TableName}ID, {table.DescriptionColumnName} FROM {table.SchemaName}.{table.TableName}");
             List<LookupValue> lookupValues = dt.Rows.Cast<DataRow>()
-                                                .Select(r => new LookupValue(int.Parse(r.ItemArray[0].ToString()), r.ItemArray[1].ToString()))
+                                                .Select(r => new LookupValue(int.Parse(GetLookupValuePart(r, LookupValuePart.ID))
+                                                                            , GetLookupValuePart(r, LookupValuePart.Description)))
                                                 .ToList();
 
             return lookupValues;
@@ -184,6 +185,7 @@ namespace EnumGenerator
                 fileLines.Add("");
                 fileLines.AddRange(GenerateEnumsForLookupTableWithParent(table));
                 fileLines.Add("End Class");
+                fileLines.Add("");
             }
 
             return fileLines;
@@ -200,13 +202,13 @@ namespace EnumGenerator
             const char separator = ',';
 
             List<LookupTableWithParent> tables = lines.Where(line => line.Split(separator).Length == Enum.GetValues(typeof(LookupTableWithParentPart)).Length)
-                                                .Select(validLine => validLine.Split(separator))
-                                                .Select(parts => new LookupTableWithParent(parts[(int)LookupTableWithParentPart.SchemaName],
-                                                                                            parts[(int)LookupTableWithParentPart.TableName],
-                                                                                            parts[(int)LookupTableWithParentPart.ViewName],
-                                                                                            parts[(int)LookupTableWithParentPart.DescriptionColumnName],
-                                                                                            parts[(int)LookupTableWithParentPart.ParentColumnName]))
-                                                .ToList();
+                                                    .Select(validLine => validLine.Split(separator))
+                                                    .Select(parts => new LookupTableWithParent(parts[(int)LookupTableWithParentPart.SchemaName],
+                                                                                                parts[(int)LookupTableWithParentPart.TableName],
+                                                                                                parts[(int)LookupTableWithParentPart.ViewName],
+                                                                                                parts[(int)LookupTableWithParentPart.DescriptionColumnName],
+                                                                                                parts[(int)LookupTableWithParentPart.ParentColumnName]))
+                                                    .ToList();
 
             List<string> errorMessages = GetFileErrors(lines, separator, Enum.GetValues(typeof(LookupTableWithParentPart)).Length, "format");
 
@@ -255,13 +257,20 @@ namespace EnumGenerator
         {
             DataTable dt = GetDataTable($"SELECT {table.TableName}ID, {table.DescriptionColumnName}, {table.ParentColumnName} FROM {table.SchemaName}.{table.ViewName}");
             List<LookupValueWithParent> lookupValues = dt.Rows.Cast<DataRow>()
-                                                .Select(r => new LookupValueWithParent(int.Parse(r.ItemArray[0].ToString()), r.ItemArray[1].ToString(), r.ItemArray[2].ToString()))
-                                                .ToList();
+                                                        .Select(r => new LookupValueWithParent(int.Parse(GetLookupValuePart(r, LookupValuePart.ID))
+                                                                                                , GetLookupValuePart(r, LookupValuePart.Description)
+                                                                                                , GetLookupValuePart(r, LookupValuePart.Parent)))
+                                                        .ToList();
 
             return lookupValues;
         }
 
         #endregion
+
+        private static string GetLookupValuePart(DataRow row, LookupValuePart part)
+        {
+            return row.ItemArray[(int)part].ToString();
+        }
 
         private static string AppendLines(IEnumerable<string> input)
         {
@@ -463,7 +472,7 @@ namespace EnumGenerator
 
         private enum Argument
         {
-            SilentModeFlag,
+            //TODO: SilentModeFlag,
             LookupTableFileName,
             LookupTableWithParentFileName
         }
@@ -507,6 +516,13 @@ namespace EnumGenerator
             ViewName,
             DescriptionColumnName,
             ParentColumnName
+        }
+
+        private enum LookupValuePart
+        {
+            ID,
+            Description,
+            Parent
         }
 
         #endregion
