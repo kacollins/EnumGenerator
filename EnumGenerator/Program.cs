@@ -21,27 +21,20 @@ namespace EnumGenerator
                                             ? args[(int)Argument.LookupTableFileName]
                                             : string.Empty;
 
-            LookupTableFileResult result = GetLookupTables(lookupTableFileName);
+            string lookupTableWithParentFileName = args.Length > (int)Argument.LookupTableWithParentFileName
+                                            ? args[(int)Argument.LookupTableWithParentFileName]
+                                            : string.Empty;
 
-            if (result.Tables.Any())
-            {
-                List<string> fileLines = GenerateEnumsWithoutParents(result);
+            fileContents.AppendLine("Public Class Enumerations");
+            fileContents.AppendLine();
 
-                fileContents.AppendLine("Public Class Enumerations");
-                fileContents.AppendLine();
+            string enumsWithoutParents = GetEnumsWithoutParents(lookupTableFileName);
+            fileContents.Append(enumsWithoutParents);
 
-                string enumsWithoutParents = AppendLines(fileLines);
-                fileContents.AppendLine(enumsWithoutParents);
-
-                fileContents.AppendLine("End Class");
-            }
-            else
-            {
-                errorMessage = "No lookup tables found.";
-            }
-
-            string enumsWithParents = ""; //TODO: GenerateEnumsWithParents();
+            string enumsWithParents = GetEnumsWithParents(lookupTableWithParentFileName);
             fileContents.AppendLine(enumsWithParents);
+
+            fileContents.AppendLine("End Class");
 
             WriteToFile("Enumerations", fileContents.ToString(), OutputFileExtension.vb);
 
@@ -49,6 +42,31 @@ namespace EnumGenerator
 
             Console.WriteLine("Press enter to exit:");
             Console.Read();
+        }
+
+        #region Methods
+
+        #region Enums Without Parents
+
+        private static string GetEnumsWithoutParents(string lookupTableFileName)
+        {
+            StringBuilder fileContents = new StringBuilder();
+
+            LookupTableFileResult result = GetLookupTables(lookupTableFileName);
+
+            if (result.Tables.Any())
+            {
+                List<string> fileLines = GenerateEnumsWithoutParents(result);
+
+                string enumsWithoutParents = AppendLines(fileLines);
+                fileContents.AppendLine(enumsWithoutParents);
+            }
+            else
+            {
+                Console.WriteLine("No lookup tables found.");
+            }
+
+            return fileContents.ToString();
         }
 
         private static List<string> GenerateEnumsWithoutParents(LookupTableFileResult result)
@@ -62,23 +80,46 @@ namespace EnumGenerator
 
                 foreach (LookupTable table in result.Tables.Where(t => t.SchemaName == schema))
                 {
-                    fileLines.AddRange(GenerateEnum(table));
+                    fileLines.AddRange(GenerateEnumForLookupTable(table));
                 }
 
                 fileLines.Add("#End Region");
                 fileLines.Add("");
             }
+
             return fileLines;
         }
 
-        #region Methods
-
-        private static string AppendLines(IEnumerable<string> input)
+        private static LookupTableFileResult GetLookupTables(string fileName)
         {
-            return input.Aggregate(new StringBuilder(), (current, next) => current.AppendLine(next)).ToString();
+            if (string.IsNullOrWhiteSpace(fileName))
+            {
+                fileName = $"{InputFile.LookupTables}.supersecret";
+            }
+
+            List<string> lines = GetInputFileLines(fileName);
+            const char separator = '.';
+
+            List<LookupTable> tables = lines.Where(line => line.Split(separator).Length == Enum.GetValues(typeof(LookupTablePart)).Length)
+                                                .Select(validLine => validLine.Split(separator))
+                                                .Select(parts => new LookupTable(parts[(int)LookupTablePart.SchemaName],
+                                                                                parts[(int)LookupTablePart.TableName],
+                                                                                parts[(int)LookupTablePart.DescriptionColumnName]))
+                                                .ToList();
+
+            List<string> errorMessages = GetFileErrors(lines, separator, Enum.GetValues(typeof(LookupTablePart)).Length, "schema/table format");
+
+            if (errorMessages.Any())
+            {
+                Console.WriteLine($"Error: Invalid schema/table format in {InputFile.LookupTables} file.");
+            }
+
+            LookupTableFileResult result = new LookupTableFileResult(tables, errorMessages);
+
+            return result;
         }
 
-        private static List<string> GenerateEnum(LookupTable lookupTable)
+        private static List<string> GenerateEnumForLookupTable(LookupTable lookupTable)
         {
             List<string> enumLines = new List<string>();
 
@@ -113,6 +154,136 @@ namespace EnumGenerator
             return enumLines;
         }
 
+        private static List<LookupValue> GetLookupValues(LookupTable table)
+        {
+            DataTable dt = GetDataTable($"SELECT {table.TableName}ID, {table.DescriptionColumnName} FROM {table.SchemaName}.{table.TableName}");
+            List<LookupValue> lookupValues = dt.Rows.Cast<DataRow>()
+                                                .Select(r => new LookupValue(int.Parse(r.ItemArray[0].ToString()), r.ItemArray[1].ToString()))
+                                                .ToList();
+
+            return lookupValues;
+        }
+
+        #endregion
+
+        #region Enums With Parents
+
+        private static string GetEnumsWithParents(string lookupTableFileName)
+        {
+            StringBuilder fileContents = new StringBuilder();
+
+            LookupTableWithParentFileResult result = GetLookupTablesWithParents(lookupTableFileName);
+
+            if (result.Tables.Any())
+            {
+                List<string> fileLines = GenerateEnumsWithParents(result);
+
+                string enumsWithParents = AppendLines(fileLines);
+                fileContents.AppendLine(enumsWithParents);
+            }
+            else
+            {
+                Console.WriteLine("No lookup tables found.");
+            }
+
+            return fileContents.ToString();
+        }
+
+        private static List<string> GenerateEnumsWithParents(LookupTableWithParentFileResult result)
+        {
+            List<string> fileLines = new List<string>();
+
+            foreach (LookupTableWithParent table in result.Tables)
+            {
+                fileLines.Add($"Public Class {table.SchemaName}_{table.TableName}");
+                fileLines.Add("");
+                fileLines.AddRange(GenerateEnumsForLookupTableWithParent(table));
+                fileLines.Add("End Class");
+            }
+
+            return fileLines;
+        }
+
+        private static LookupTableWithParentFileResult GetLookupTablesWithParents(string fileName)
+        {
+            if (string.IsNullOrWhiteSpace(fileName))
+            {
+                fileName = $"{InputFile.LookupTablesWithParents}.supersecret";
+            }
+
+            List<string> lines = GetInputFileLines(fileName);
+            const char separator = ',';
+
+            List<LookupTableWithParent> tables = lines.Where(line => line.Split(separator).Length == Enum.GetValues(typeof(LookupTableWithParentPart)).Length)
+                                                .Select(validLine => validLine.Split(separator))
+                                                .Select(parts => new LookupTableWithParent(parts[(int)LookupTableWithParentPart.SchemaName],
+                                                                                            parts[(int)LookupTableWithParentPart.TableName],
+                                                                                            parts[(int)LookupTableWithParentPart.ViewName],
+                                                                                            parts[(int)LookupTableWithParentPart.DescriptionColumnName],
+                                                                                            parts[(int)LookupTableWithParentPart.ParentColumnName]))
+                                                .ToList();
+
+            List<string> errorMessages = GetFileErrors(lines, separator, Enum.GetValues(typeof(LookupTableWithParentPart)).Length, "schema/table format");
+
+            if (errorMessages.Any())
+            {
+                Console.WriteLine($"Error: Invalid schema/table format in {InputFile.LookupTablesWithParents} file.");
+            }
+
+            LookupTableWithParentFileResult result = new LookupTableWithParentFileResult(tables, errorMessages);
+
+            return result;
+        }
+
+        private static List<string> GenerateEnumsForLookupTableWithParent(LookupTableWithParent lookupTable)
+        {
+            List<string> enumLines = new List<string>();
+
+            List<LookupValueWithParent> lookupValues = GetLookupValuesWithParents(lookupTable);
+
+            foreach (string parent in lookupValues.Select(v => v.Parent).Distinct())
+            {
+                enumLines.Add($"{Tab}Public Enum {CleanDescription(parent)}");
+
+                List<string> duplicateDescriptions = lookupValues.Where(v => v.Parent == parent)
+                                                                    .GroupBy(v => v.Description)
+                                                                    .Where(g => g.Count() > 1)
+                                                                    .Select(g => g.Key)
+                                                                    .ToList();
+
+                if (duplicateDescriptions.Any())
+                {
+                    Console.WriteLine("Duplicate descriptions:");
+                    Console.WriteLine(duplicateDescriptions);
+                }
+
+                enumLines.AddRange(lookupValues.Where(v => v.Parent == parent)
+                                                .Select(value => $"{Tab}{Tab}{CleanDescription(value.Description)} = {value.Value}"));
+
+                enumLines.Add($"{Tab}End Enum");
+                enumLines.Add("");
+            }
+
+            return enumLines;
+        }
+
+        private static List<LookupValueWithParent> GetLookupValuesWithParents(LookupTableWithParent table)
+        {
+            DataTable dt = GetDataTable($"SELECT {table.TableName}ID, {table.DescriptionColumnName}, {table.ParentColumnName} FROM {table.SchemaName}.{table.ViewName}");
+            List<LookupValueWithParent> lookupValues = dt.Rows.Cast<DataRow>()
+                                                .Select(r => new LookupValueWithParent(int.Parse(r.ItemArray[0].ToString()), r.ItemArray[1].ToString(), r.ItemArray[2].ToString()))
+                                                .ToList();
+
+            return lookupValues;
+        }
+
+        #endregion
+
+        private static string AppendLines(IEnumerable<string> input)
+        {
+            return input.Aggregate(new StringBuilder(), (current, next) => current.AppendLine(next)).ToString();
+        }
+
         private static List<string> GetInputFileLines(string fileName)
         {
             List<string> fileLines = new List<string>();
@@ -144,35 +315,6 @@ namespace EnumGenerator
             }
 
             return fileLines;
-        }
-
-        private static LookupTableFileResult GetLookupTables(string fileName)
-        {
-            if (string.IsNullOrWhiteSpace(fileName))
-            {
-                fileName = $"{InputFile.LookupTables}.supersecret";
-            }
-
-            List<string> lines = GetInputFileLines(fileName);
-            const char separator = '.';
-
-            List<LookupTable> tablesToCompare = lines.Where(line => line.Split(separator).Length == Enum.GetValues(typeof(LookupTablePart)).Length)
-                                                .Select(validLine => validLine.Split(separator))
-                                                .Select(parts => new LookupTable(parts[(int)LookupTablePart.SchemaName],
-                                                                                parts[(int)LookupTablePart.TableName],
-                                                                                parts[(int)LookupTablePart.DescriptionColumnName]))
-                                                .ToList();
-
-            List<string> errorMessages = GetFileErrors(lines, separator, Enum.GetValues(typeof(LookupTablePart)).Length, "schema/table format");
-
-            if (errorMessages.Any())
-            {
-                Console.WriteLine($"Error: Invalid schema/table format in {InputFile.LookupTables} file.");
-            }
-
-            LookupTableFileResult result = new LookupTableFileResult(tablesToCompare, errorMessages);
-
-            return result;
         }
 
         private static List<string> GetFileErrors(List<string> fileLines, char separator, int length, string description)
@@ -211,16 +353,6 @@ namespace EnumGenerator
             return dt;
         }
 
-        private static List<LookupValue> GetLookupValues(LookupTable table)
-        {
-            DataTable dt = GetDataTable($"SELECT {table.TableName}ID, {table.DescriptionColumnName} FROM {table.SchemaName}.{table.TableName}");
-            List<LookupValue> lookupValues = dt.Rows.Cast<DataRow>()
-                                                .Select(r => new LookupValue(int.Parse(r.ItemArray[0].ToString()), r.ItemArray[1].ToString()))
-                                                .ToList();
-
-            return lookupValues;
-        }
-        
         private static string CleanDescription(string description)
         {
             description = description.Replace("&", " and ").Replace("(s)", "s");
@@ -243,7 +375,7 @@ namespace EnumGenerator
 
             return description;
         }
-        
+
         private static void WriteToFile(string fileName, string fileContents, OutputFileExtension fileExtension)
         {
             const char backSlash = '\\';
@@ -268,7 +400,7 @@ namespace EnumGenerator
 
             Console.WriteLine($"Wrote file to {filePath}");
         }
-        
+
         #endregion
 
         #region Properties
@@ -295,6 +427,25 @@ namespace EnumGenerator
             }
         }
 
+        private class LookupTableWithParent
+        {
+            public string SchemaName { get; private set; }
+            public string TableName { get; private set; }
+            public string ViewName { get; private set; }
+            public string DescriptionColumnName { get; private set; }
+            public string ParentColumnName { get; private set; }
+
+            public LookupTableWithParent(string schemaName, string tableName, string viewName,
+                                        string descriptionColumnName, string parentColumnName)
+            {
+                SchemaName = schemaName;
+                TableName = tableName;
+                ViewName = viewName;
+                DescriptionColumnName = descriptionColumnName;
+                ParentColumnName = parentColumnName;
+            }
+        }
+
         private class LookupValue
         {
             public string Description { get; private set; }
@@ -306,7 +457,7 @@ namespace EnumGenerator
                 Value = value;
             }
         }
-        
+
         private class LookupTableFileResult
         {
             public List<LookupTable> Tables { get; }
@@ -319,6 +470,32 @@ namespace EnumGenerator
             }
         }
 
+        private class LookupTableWithParentFileResult
+        {
+            public List<LookupTableWithParent> Tables { get; }
+            public List<string> Errors { get; }
+
+            public LookupTableWithParentFileResult(List<LookupTableWithParent> tables, List<string> errors)
+            {
+                Tables = tables;
+                Errors = errors;
+            }
+        }
+
+        private class LookupValueWithParent
+        {
+            public string Parent { get; private set; }
+            public string Description { get; private set; }
+            public int Value { get; private set; }
+
+            public LookupValueWithParent(int value, string description, string parent)
+            {
+                Value = value;
+                Description = description;
+                Parent = parent;
+            }
+        }
+
         #endregion
 
         #region Enums
@@ -326,7 +503,8 @@ namespace EnumGenerator
         private enum Argument
         {
             SilentModeFlag,
-            LookupTableFileName
+            LookupTableFileName,
+            LookupTableWithParentFileName
         }
 
         private enum Folder
@@ -346,12 +524,21 @@ namespace EnumGenerator
             vb,
             txt
         }
-        
+
         private enum LookupTablePart
         {
             SchemaName,
             TableName,
             DescriptionColumnName
+        }
+
+        private enum LookupTableWithParentPart
+        {
+            SchemaName,
+            TableName,
+            ViewName,
+            DescriptionColumnName,
+            ParentColumnName
         }
 
         #endregion
