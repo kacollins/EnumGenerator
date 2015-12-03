@@ -14,7 +14,6 @@ namespace EnumGenerator
     {
         static void Main(string[] args)
         {
-            string errorMessage = "";
             StringBuilder fileContents = new StringBuilder();
 
             string lookupTableFileName = args.Length > (int)Argument.LookupTableFileName
@@ -36,9 +35,7 @@ namespace EnumGenerator
 
             fileContents.AppendLine("End Class");
 
-            WriteToFile("Enumerations", fileContents.ToString(), OutputFileExtension.vb);
-
-            Console.WriteLine(errorMessage);
+            WriteToFile(OutputFile.Enumerations, OutputFileExtension.vb, fileContents.ToString());
 
             Console.WriteLine("Press enter to exit:");
             Console.Read();
@@ -52,33 +49,26 @@ namespace EnumGenerator
         {
             StringBuilder fileContents = new StringBuilder();
 
-            LookupTableFileResult result = GetLookupTables(lookupTableFileName);
+            List<LookupTable> tables = GetLookupTables(lookupTableFileName);
 
-            if (result.Tables.Any())
-            {
-                List<string> fileLines = GenerateEnumsWithoutParents(result);
+            List<string> fileLines = GenerateEnumsWithoutParents(tables);
 
-                string enumsWithoutParents = AppendLines(fileLines);
-                fileContents.AppendLine(enumsWithoutParents);
-            }
-            else
-            {
-                Console.WriteLine("No lookup tables found.");
-            }
+            string enumsWithoutParents = AppendLines(fileLines);
+            fileContents.AppendLine(enumsWithoutParents);
 
             return fileContents.ToString();
         }
 
-        private static List<string> GenerateEnumsWithoutParents(LookupTableFileResult result)
+        private static List<string> GenerateEnumsWithoutParents(List<LookupTable> tables)
         {
             List<string> fileLines = new List<string>();
 
-            foreach (string schema in result.Tables.Select(t => t.SchemaName).Distinct())
+            foreach (string schema in tables.Select(t => t.SchemaName).Distinct())
             {
                 fileLines.Add($"#Region \"{schema}\"");
                 fileLines.Add("");
 
-                foreach (LookupTable table in result.Tables.Where(t => t.SchemaName == schema))
+                foreach (LookupTable table in tables.Where(t => t.SchemaName == schema))
                 {
                     fileLines.AddRange(GenerateEnumForLookupTable(table));
                 }
@@ -90,7 +80,7 @@ namespace EnumGenerator
             return fileLines;
         }
 
-        private static LookupTableFileResult GetLookupTables(string fileName)
+        private static List<LookupTable> GetLookupTables(string fileName)
         {
             if (string.IsNullOrWhiteSpace(fileName))
             {
@@ -107,16 +97,15 @@ namespace EnumGenerator
                                                                                 parts[(int)LookupTablePart.DescriptionColumnName]))
                                                 .ToList();
 
-            List<string> errorMessages = GetFileErrors(lines, separator, Enum.GetValues(typeof(LookupTablePart)).Length, "schema/table format");
+            List<string> errorMessages = GetFileErrors(lines, separator, Enum.GetValues(typeof(LookupTablePart)).Length, "format");
 
             if (errorMessages.Any())
             {
-                Console.WriteLine($"Error: Invalid schema/table format in {InputFile.LookupTables} file.");
+                Console.WriteLine($"Error: Invalid format in {InputFile.LookupTables} file.");
+                WriteToFile(OutputFile.ErrorsInLookupTables, OutputFileExtension.txt, AppendLines(errorMessages));
             }
 
-            LookupTableFileResult result = new LookupTableFileResult(tables, errorMessages);
-
-            return result;
+            return tables;
         }
 
         private static List<string> GenerateEnumForLookupTable(LookupTable lookupTable)
@@ -172,28 +161,24 @@ namespace EnumGenerator
         {
             StringBuilder fileContents = new StringBuilder();
 
-            LookupTableWithParentFileResult result = GetLookupTablesWithParents(lookupTableFileName);
+            List<LookupTableWithParent> tables = GetLookupTablesWithParents(lookupTableFileName);
 
-            if (result.Tables.Any())
+            if (tables.Any())
             {
-                List<string> fileLines = GenerateEnumsWithParents(result);
+                List<string> fileLines = GenerateEnumsWithParents(tables);
 
                 string enumsWithParents = AppendLines(fileLines);
                 fileContents.AppendLine(enumsWithParents);
-            }
-            else
-            {
-                Console.WriteLine("No lookup tables found.");
             }
 
             return fileContents.ToString();
         }
 
-        private static List<string> GenerateEnumsWithParents(LookupTableWithParentFileResult result)
+        private static List<string> GenerateEnumsWithParents(List<LookupTableWithParent> tables)
         {
             List<string> fileLines = new List<string>();
 
-            foreach (LookupTableWithParent table in result.Tables)
+            foreach (LookupTableWithParent table in tables)
             {
                 fileLines.Add($"Public Class {table.SchemaName}_{table.TableName}");
                 fileLines.Add("");
@@ -204,7 +189,7 @@ namespace EnumGenerator
             return fileLines;
         }
 
-        private static LookupTableWithParentFileResult GetLookupTablesWithParents(string fileName)
+        private static List<LookupTableWithParent> GetLookupTablesWithParents(string fileName)
         {
             if (string.IsNullOrWhiteSpace(fileName))
             {
@@ -223,16 +208,15 @@ namespace EnumGenerator
                                                                                             parts[(int)LookupTableWithParentPart.ParentColumnName]))
                                                 .ToList();
 
-            List<string> errorMessages = GetFileErrors(lines, separator, Enum.GetValues(typeof(LookupTableWithParentPart)).Length, "schema/table format");
+            List<string> errorMessages = GetFileErrors(lines, separator, Enum.GetValues(typeof(LookupTableWithParentPart)).Length, "format");
 
             if (errorMessages.Any())
             {
-                Console.WriteLine($"Error: Invalid schema/table format in {InputFile.LookupTablesWithParents} file.");
+                Console.WriteLine($"Error: Invalid format in {InputFile.LookupTablesWithParents} file.");
+                WriteToFile(OutputFile.ErrorsInLookupTablesWithParents, OutputFileExtension.txt, AppendLines(errorMessages));
             }
 
-            LookupTableWithParentFileResult result = new LookupTableWithParentFileResult(tables, errorMessages);
-
-            return result;
+            return tables;
         }
 
         private static List<string> GenerateEnumsForLookupTableWithParent(LookupTableWithParent lookupTable)
@@ -343,6 +327,7 @@ namespace EnumGenerator
             }
             catch (Exception ex)
             {
+                //TODO: Write errors to file
                 Console.WriteLine(ex.Message);
             }
             finally
@@ -376,7 +361,7 @@ namespace EnumGenerator
             return description;
         }
 
-        private static void WriteToFile(string fileName, string fileContents, OutputFileExtension fileExtension)
+        private static void WriteToFile(OutputFile fileName, OutputFileExtension fileExtension, string fileContents)
         {
             const char backSlash = '\\';
             string directory = $"{CurrentDirectory}{backSlash}{Folder.Outputs}";
@@ -458,30 +443,6 @@ namespace EnumGenerator
             }
         }
 
-        private class LookupTableFileResult
-        {
-            public List<LookupTable> Tables { get; }
-            public List<string> Errors { get; }
-
-            public LookupTableFileResult(List<LookupTable> tables, List<string> errors)
-            {
-                Tables = tables;
-                Errors = errors;
-            }
-        }
-
-        private class LookupTableWithParentFileResult
-        {
-            public List<LookupTableWithParent> Tables { get; }
-            public List<string> Errors { get; }
-
-            public LookupTableWithParentFileResult(List<LookupTableWithParent> tables, List<string> errors)
-            {
-                Tables = tables;
-                Errors = errors;
-            }
-        }
-
         private class LookupValueWithParent
         {
             public string Parent { get; private set; }
@@ -517,6 +478,13 @@ namespace EnumGenerator
         {
             LookupTables,
             LookupTablesWithParents
+        }
+
+        private enum OutputFile
+        {
+            Enumerations,
+            ErrorsInLookupTables,
+            ErrorsInLookupTablesWithParents
         }
 
         private enum OutputFileExtension
