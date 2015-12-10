@@ -90,11 +90,9 @@ namespace EnumGenerator
             List<string> lines = GetInputFileLines(fileName);
             const char separator = '.';
 
-            List<LookupTable> tables = lines.Where(line => line.Split(separator).Length == Enum.GetValues(typeof(LookupTablePart)).Length)
-                                                .Select(validLine => validLine.Split(separator))
-                                                .Select(parts => new LookupTable(parts[(int)LookupTablePart.SchemaName],
-                                                                                parts[(int)LookupTablePart.TableName],
-                                                                                parts[(int)LookupTablePart.DescriptionColumnName]))
+            List<LookupTable> tables = lines.Select(line => line.Split(separator).ToList())
+                                                .Where(line => line.Count == Enum.GetValues(typeof(LookupTablePart)).Length)
+                                                .Select(parts => new LookupTable(parts))
                                                 .ToList();
 
             List<string> errorMessages = GetFileErrors(lines, separator, Enum.GetValues(typeof(LookupTablePart)).Length, "format");
@@ -147,8 +145,7 @@ namespace EnumGenerator
         {
             DataTable dt = GetDataTable($"SELECT {table.TableName}ID, {table.DescriptionColumnName} FROM {table.SchemaName}.{table.TableName}");
             List<LookupValue> lookupValues = dt.Rows.Cast<DataRow>()
-                                                .Select(r => new LookupValue(int.Parse(GetLookupValuePart(r, LookupValuePart.ID))
-                                                                            , GetLookupValuePart(r, LookupValuePart.Description)))
+                                                .Select(r => new LookupValue(r))
                                                 .ToList();
 
             return lookupValues;
@@ -201,13 +198,9 @@ namespace EnumGenerator
             List<string> lines = GetInputFileLines(fileName);
             const char separator = ',';
 
-            List<LookupTableWithParent> tables = lines.Where(line => line.Split(separator).Length == Enum.GetValues(typeof(LookupTableWithParentPart)).Length)
-                                                    .Select(validLine => validLine.Split(separator))
-                                                    .Select(parts => new LookupTableWithParent(parts[(int)LookupTableWithParentPart.SchemaName],
-                                                                                                parts[(int)LookupTableWithParentPart.TableName],
-                                                                                                parts[(int)LookupTableWithParentPart.ViewName],
-                                                                                                parts[(int)LookupTableWithParentPart.DescriptionColumnName],
-                                                                                                parts[(int)LookupTableWithParentPart.ParentColumnName]))
+            List<LookupTableWithParent> tables = lines.Select(line => line.Split(separator).ToList())
+                                                    .Where(line => line.Count == Enum.GetValues(typeof(LookupTableWithParentPart)).Length)
+                                                    .Select(parts => new LookupTableWithParent(parts))
                                                     .ToList();
 
             List<string> errorMessages = GetFileErrors(lines, separator, Enum.GetValues(typeof(LookupTableWithParentPart)).Length, "format");
@@ -257,9 +250,7 @@ namespace EnumGenerator
         {
             DataTable dt = GetDataTable($"SELECT {table.TableName}ID, {table.DescriptionColumnName}, {table.ParentColumnName} FROM {table.SchemaName}.{table.ViewName}");
             List<LookupValueWithParent> lookupValues = dt.Rows.Cast<DataRow>()
-                                                        .Select(r => new LookupValueWithParent(int.Parse(GetLookupValuePart(r, LookupValuePart.ID))
-                                                                                                , GetLookupValuePart(r, LookupValuePart.Description)
-                                                                                                , GetLookupValuePart(r, LookupValuePart.Parent)))
+                                                        .Select(r => new LookupValueWithParent(r))
                                                         .ToList();
 
             return lookupValues;
@@ -269,7 +260,7 @@ namespace EnumGenerator
 
         private static string GetLookupValuePart(DataRow row, LookupValuePart part)
         {
-            return row.ItemArray[(int)part].ToString();
+            return row.ItemArray[(int)part].ToString().Trim();
         }
 
         private static string AppendLines(IEnumerable<string> input)
@@ -409,60 +400,59 @@ namespace EnumGenerator
 
         private class LookupTable
         {
-            public string SchemaName { get; private set; }
-            public string TableName { get; private set; }
-            public string DescriptionColumnName { get; private set; }
+            public string SchemaName { get; }
+            public string TableName { get; }
+            public string DescriptionColumnName { get; }
 
-            public LookupTable(string schemaName, string tableName, string descriptionColumnName)
+            public LookupTable(List<string> parts)
             {
-                SchemaName = schemaName;
-                TableName = tableName;
-                DescriptionColumnName = descriptionColumnName;
+                SchemaName = parts[(int)LookupTablePart.SchemaName].Trim();
+                TableName = parts[(int)LookupTablePart.TableName].Trim();
+                DescriptionColumnName = parts[(int)LookupTablePart.DescriptionColumnName].Trim();
             }
         }
 
         private class LookupTableWithParent
         {
-            public string SchemaName { get; private set; }
-            public string TableName { get; private set; }
-            public string ViewName { get; private set; }
-            public string DescriptionColumnName { get; private set; }
-            public string ParentColumnName { get; private set; }
+            public string SchemaName { get; }
+            public string TableName { get; }
+            public string ViewName { get; }
+            public string DescriptionColumnName { get; }
+            public string ParentColumnName { get; }
 
-            public LookupTableWithParent(string schemaName, string tableName, string viewName,
-                                        string descriptionColumnName, string parentColumnName)
+            public LookupTableWithParent(List<string> parts)
             {
-                SchemaName = schemaName;
-                TableName = tableName;
-                ViewName = viewName;
-                DescriptionColumnName = descriptionColumnName;
-                ParentColumnName = parentColumnName;
+                SchemaName = parts[(int)LookupTableWithParentPart.SchemaName].Trim();
+                TableName = parts[(int)LookupTableWithParentPart.TableName].Trim();
+                ViewName = parts[(int)LookupTableWithParentPart.ViewName].Trim();
+                DescriptionColumnName = parts[(int)LookupTableWithParentPart.DescriptionColumnName].Trim();
+                ParentColumnName = parts[(int)LookupTableWithParentPart.ParentColumnName].Trim();
             }
         }
 
         private class LookupValue
         {
-            public string Description { get; private set; }
-            public int Value { get; private set; }
+            public string Description { get; }
+            public int Value { get; }
 
-            public LookupValue(int value, string description)
+            public LookupValue(DataRow r)
             {
-                Description = description;
-                Value = value;
+                Description = GetLookupValuePart(r, LookupValuePart.Description);
+                Value = int.Parse(GetLookupValuePart(r, LookupValuePart.ID));
             }
         }
 
         private class LookupValueWithParent
         {
-            public string Parent { get; private set; }
-            public string Description { get; private set; }
-            public int Value { get; private set; }
-
-            public LookupValueWithParent(int value, string description, string parent)
+            public string Parent { get; }
+            public string Description { get; }
+            public int Value { get; }
+            
+            public LookupValueWithParent(DataRow r)
             {
-                Value = value;
-                Description = description;
-                Parent = parent;
+                Parent = GetLookupValuePart(r, LookupValuePart.Parent);
+                Description = GetLookupValuePart(r, LookupValuePart.Description);
+                Value = int.Parse(GetLookupValuePart(r, LookupValuePart.ID));
             }
         }
 
