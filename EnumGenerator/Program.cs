@@ -20,6 +20,9 @@ namespace EnumGenerator
                                             ? args[(int)Argument.LookupTableFileName]
                                             : string.Empty;
 
+            fileContents.AppendLine("Imports System.ComponentModel");
+            fileContents.AppendLine();
+
             fileContents.AppendLine("Public Class Enumerations");
             fileContents.AppendLine();
 
@@ -128,7 +131,7 @@ namespace EnumGenerator
                     Console.WriteLine(duplicateDescriptions);
                 }
 
-                enumLines.AddRange(lookupValues.Select(value => $"{Tab}{Tab}{CleanDescription(value.Description)} = {value.Value}"));
+                enumLines.AddRange(lookupValues.Select(value => $"{GetEnumValue(value.Description, value.Value)}"));
             }
             else
             {
@@ -178,10 +181,10 @@ namespace EnumGenerator
 
             foreach (LookupTableWithParent table in tables)
             {
-                fileLines.Add($"Public Class {table.SchemaName}_{table.TableName}");
+                fileLines.Add($"{Tab}Public Class {table.SchemaName}_{table.TableName}");
                 fileLines.Add("");
                 fileLines.AddRange(GenerateEnumsForLookupTableWithParent(table));
-                fileLines.Add("End Class");
+                fileLines.Add($"{Tab}End Class");
                 fileLines.Add("");
             }
 
@@ -222,7 +225,7 @@ namespace EnumGenerator
 
             foreach (string parent in lookupValues.Select(v => v.Parent).Distinct())
             {
-                enumLines.Add($"{Tab}Public Enum {CleanDescription(parent)}");
+                enumLines.Add($"{Tab}{Tab}Public Enum {CleanDescription(parent)}");
 
                 List<string> duplicateDescriptions = lookupValues.Where(v => v.Parent == parent)
                                                                     .GroupBy(v => v.Description)
@@ -237,9 +240,9 @@ namespace EnumGenerator
                 }
 
                 enumLines.AddRange(lookupValues.Where(v => v.Parent == parent)
-                                                .Select(value => $"{Tab}{Tab}{CleanDescription(value.Description)} = {value.Value}"));
+                                                .Select(value => $"{GetEnumValue(value.Description, value.Value, true)}"));
 
-                enumLines.Add($"{Tab}End Enum");
+                enumLines.Add($"{Tab}{Tab}End Enum");
                 enumLines.Add("");
             }
 
@@ -338,6 +341,14 @@ namespace EnumGenerator
             return dt;
         }
 
+        private static string GetEnumValue(string description, int value, bool addExtraTab = false)
+        {
+            string extraTab = addExtraTab ? Tab : string.Empty;
+
+            return $@"{extraTab}{GetDescriptionAttribute(description)}{
+                    extraTab}{Tab}{Tab}{CleanDescription(description)} = {value}";
+        }
+
         private static string CleanDescription(string description)
         {
             description = description.Replace("&", " and ").Replace("(s)", "s");
@@ -359,6 +370,15 @@ namespace EnumGenerator
             }
 
             return description;
+        }
+
+        private static string GetDescriptionAttribute(string description)
+        {
+            description = description.Replace("\"", "");
+
+            string descriptionAttribute = $"{Tab}{Tab}<Description(\"{description}\")>{Environment.NewLine}";
+
+            return descriptionAttribute;
         }
 
         private static void WriteToFile(OutputFile fileName, OutputFileExtension fileExtension, string fileContents)
@@ -447,7 +467,7 @@ namespace EnumGenerator
             public string Parent { get; }
             public string Description { get; }
             public int Value { get; }
-            
+
             public LookupValueWithParent(DataRow r)
             {
                 Parent = GetLookupValuePart(r, LookupValuePart.Parent);
